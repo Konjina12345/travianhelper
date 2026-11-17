@@ -322,17 +322,17 @@ class MainActivity : Activity() {
                 val decoded = JSONTokener(raw).nextValue() as? String ?: "{}"
                 val fields = org.json.JSONObject(decoded).optJSONArray("fields") ?: JSONArray()
                 if (fields.length() != 18) {
-                    scanResults.add("GREŠKA DID $expectedDid — resursni DOM \${fields.length()}/18; nepotpun keš nije sačuvan")
+                    scanResults.add("GREŠKA DID $expectedDid — resursni DOM ${fields.length()}/18; nepotpun keš nije sačuvan")
                     scanIndex++
                     scanNextVillage()
                     return@runJs
                 }
                 val saved = saveResourceCache(expectedDid, fields)
-                scanResourceSummary = "DORF1: 18/18 polja; keš \${if (saved) "sačuvan" else "nije potvrđen"}"
+                scanResourceSummary = "DORF1: 18/18 polja; keš ${if (saved) "sačuvan" else "nije potvrđen"}"
                 setStatus("DID $expectedDid — resursi očitani 18/18; prelazim direktno u centar.")
                 scanOpenCenter()
             } catch (e: Exception) {
-                scanResults.add("GREŠKA DID $expectedDid — parsiranje resursa: \${e.message}")
+                scanResults.add("GREŠKA DID $expectedDid — parsiranje resursa: ${e.message}")
                 scanIndex++
                 scanNextVillage()
             }
@@ -368,14 +368,14 @@ class MainActivity : Activity() {
                 val item = scanVillages.optJSONObject(scanIndex)
                 val name = item?.optString("name") ?: "Selo"
                 val resourceInfo = if (cachedResources(expectedDid) != null) "18 resursnih L10+ (dorf1 preskočen)" else scanResourceSummary
-                scanResults.add("✓ $name | DID $expectedDid | $resourceInfo | centar \${buildings.length()} slotova")
+                scanResults.add("✓ $name | DID $expectedDid | $resourceInfo | centar ${buildings.length()} slotova")
                 villageCache.edit().putString("center_$expectedDid", buildings.toString()).apply()
             } catch (_: Exception) {
                 val item = scanVillages.optJSONObject(scanIndex)
-                scanResults.add("✓ \${item?.optString("name") ?: "Selo"} | DID $expectedDid | resursi očitani; centar nije parsiran")
+                scanResults.add("✓ ${item?.optString("name") ?: "Selo"} | DID $expectedDid | resursi očitani; centar nije parsiran")
             }
             scanIndex++
-            results.text = "Napredak: \${scanIndex}/\${scanVillages.length()} sela\n" + scanResults.takeLast(10).joinToString("\n")
+            results.text = "Napredak: ${scanIndex}/${scanVillages.length()} sela\n" + scanResults.takeLast(10).joinToString("\n")
             handler.postDelayed({ scanNextVillage() }, 900)
         }
     }
