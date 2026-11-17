@@ -31,6 +31,7 @@ class MainActivity : Activity() {
     private var scanVillages = JSONArray()
     private var scanIndex = 0
     private var scanRunning = false
+    private var scanPreparedForSwitch = false
     private val scanResults = mutableListOf<String>()
     private var scanResourceSummary = ""
     private val villageCache by lazy { getSharedPreferences("travian_village_cache", MODE_PRIVATE) }
@@ -210,13 +211,34 @@ class MainActivity : Activity() {
             return
         }
         val item = scanVillages.optJSONObject(scanIndex) ?: run { scanIndex++; scanNextVillage(); return }
-        expectedDid = item.optString("did"); requestedView = "scan"; navigationAttempts = 0; consecutiveMatches = 0
+        expectedDid = item.optString("did"); requestedView = "scan"; navigationAttempts = 0; consecutiveMatches = 0; scanPreparedForSwitch = false
         setStatus("Selo ${scanIndex + 1}/${scanVillages.length()}: ${item.optString("name")} (DID $expectedDid) — prebacujem…")
         scanSwitchAttempt()
     }
 
     private fun scanSwitchAttempt() {
         if (!scanRunning) return
+        if (!scanPreparedForSwitch) {
+            runJs("(function(){return location.href;})()") { current ->
+                if (current.contains("dorf1.php")) {
+                    setStatus("Napustam dorf1 trenutnog sela i vraćam se u centar prije promjene sela…")
+                    clickView("center") { ok ->
+                        if (!ok) {
+                            scanResults.add("GREŠKA: ne mogu vratiti trenutno selo na centar prije promjene")
+                            scanRunning = false
+                            setStatus("Skeniranje zaustavljeno radi sigurnosti navigacije.")
+                        } else {
+                            scanPreparedForSwitch = true
+                            handler.postDelayed({ scanSwitchAttempt() }, 1700)
+                        }
+                    }
+                } else {
+                    scanPreparedForSwitch = true
+                    scanSwitchAttempt()
+                }
+            }
+            return
+        }
         if (navigationAttempts >= 15) { scanResults.add("GREŠKA DID $expectedDid — nije potvrđen"); scanIndex++; scanNextVillage(); return }
         navigationAttempts++
         val js = """(function(){const did=${jsString(expectedDid)};
