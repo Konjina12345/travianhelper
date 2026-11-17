@@ -203,13 +203,24 @@ class MainActivity : Activity() {
         runJs(js) { raw ->
             if (raw.trim('"') == expectedDid) consecutiveMatches++ else consecutiveMatches = 0
             if (consecutiveMatches >= 2) {
-                setStatus("DID $expectedDid potvrđen — učitavam resurse…")
-                scanOpenResource()
+                setStatus("DID $expectedDid potvrđen — provjeravam keš resursa…")
+                scanChooseFirstView()
             } else if (navigationAttempts < 15) handler.postDelayed({ scanSwitchAttempt() }, 450)
             else { scanResults.add("GREŠKA DID $expectedDid — potvrda nije uspjela"); scanIndex++; scanNextVillage() }
         }
     }
 
+    private fun scanChooseFirstView() {
+        if (!scanRunning) return
+        if (cachedResources(expectedDid) != null) {
+            scanResourceSummary = "KEŠ: svih 18 polja je potvrđeno na L10+"
+            setStatus("DID $expectedDid — svih 18 polja L10+; preskačem dorf1 i idem direktno u centar.")
+            scanOpenCenter()
+        } else {
+            setStatus("DID $expectedDid — keš nije kompletan; učitavam dorf1.")
+            scanOpenResource()
+        }
+    }
     private fun scanOpenResource() {
         if (!scanRunning) return
         runJs("(function(){return location.href;})()") { url ->
@@ -217,6 +228,16 @@ class MainActivity : Activity() {
             else clickView("resource") { ok ->
                 if (!ok) { scanResults.add("GREŠKA DID $expectedDid — resursna stranica nije otvorena"); scanIndex++; scanNextVillage() }
                 else captureResourcePage()
+            }
+        }
+    }
+    private fun scanOpenCenter() {
+        if (!scanRunning) return
+        runJs("(function(){return location.href;})()") { url ->
+            if (url.contains("dorf2.php")) captureCenterPage()
+            else clickView("center") { ok ->
+                if (!ok) { scanResults.add("GREŠKA DID $expectedDid — centar nije otvoren"); scanIndex++; scanNextVillage() }
+                else captureCenterPage()
             }
         }
     }
