@@ -149,7 +149,7 @@ class MainActivity : Activity() {
                 return
             }
             if (!target.host.equals(current.host, ignoreCase = true)) {
-                setStatus("Prvo otvori login stranicu istog servera: \${target.host}.")
+                setStatus("Prvo otvori login stranicu istog servera: ${target.host}.")
                 return
             }
         } catch (_: Exception) {
