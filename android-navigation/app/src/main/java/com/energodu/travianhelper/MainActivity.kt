@@ -113,10 +113,22 @@ class MainActivity : Activity() {
             settings.domStorageEnabled = true
             settings.loadsImagesAutomatically = true
             settings.useWideViewPort = true
-            settings.loadWithOverviewMode = true
+            settings.loadWithOverviewMode = false
+            settings.textZoom = 100
+            settings.setSupportZoom(true)
+            settings.builtInZoomControls = true
+            settings.displayZoomControls = false
             settings.javaScriptCanOpenWindowsAutomatically = false
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
+                    // Keep Travian fitted to the phone viewport instead of shrinking the whole page into a tiny corner.
+                    view?.evaluateJavascript("""(function(){
+                      let m=document.querySelector('meta[name="viewport"]');
+                      if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}
+                      m.content='width=device-width, initial-scale=1.0, minimum-scale=0.75, maximum-scale=3.0, user-scalable=yes';
+                      document.documentElement.style.scrollBehavior='smooth';
+                      document.body.style.maxWidth='100%';
+                    })();""", null)
                     if (pendingAutoLogin) {
                         pendingAutoLogin = false
                         setStatus("Login stranica je učitana — popunjavam i šaljem prijavu…")
@@ -204,7 +216,7 @@ class MainActivity : Activity() {
           const mobileBox=[...form.querySelectorAll('input[type=checkbox]')].find(e=>
             /log\s*in\s*with\s*mobile\s*version/i.test(labelsFor(e)+' '+(e.parentElement?.innerText||'')+' '+(e.closest('label')?.innerText||'')));
           if(!mobileBox)return 'MOBILE_VERSION_CHECKBOX_NOT_FOUND';
-          const mark=e=>{e.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});e.style.outline='3px solid #ff9800';e.style.outlineOffset='3px';e.style.transition='outline 0.15s';};
+          const mark=e=>{e.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});e.style.outline='3px solid #ff9800';e.style.outlineOffset='3px';e.style.transition='outline 0.15s';e.style.backgroundColor='rgba(255,193,7,.18)';};
           const setValue=(el,value)=>{el.focus();mark(el);const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));};
           mark(user); user.focus();
           setTimeout(()=>{
@@ -212,8 +224,7 @@ class MainActivity : Activity() {
             setTimeout(()=>{
               setValue(pass,passValue);
               setTimeout(()=>{
-                mobileBox.scrollIntoView({behavior:'smooth',block:'center'});
-                mobileBox.style.outline='3px solid #ff9800';
+                mark(mobileBox); mobileBox.focus();
                 if(mobileBox.checked){mobileBox.click();mobileBox.dispatchEvent(new Event('change',{bubbles:true}));}
                 if(mobileBox.checked)return;
                 setTimeout(()=>{
@@ -372,7 +383,10 @@ class MainActivity : Activity() {
         navigationAttempts++
         val js = """(function(){const did=${jsString(expectedDid)};
           const e=document.querySelector('#sidebarBoxVillagelist .listEntry.village[data-did="'+did+'"],.villageList .listEntry.village[data-did="'+did+'"],.listEntry.village[data-did="'+did+'"]');
-          if(!e)return 'NOT_FOUND';const t=e.querySelector('a,span.name,.name')||e;t.scrollIntoView({block:'center'});t.click();return 'CLICKED';})();"""
+          if(!e)return 'NOT_FOUND';const t=e.querySelector('a,span.name,.name')||e;
+          t.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});
+          t.style.outline='3px solid #ff9800';t.style.outlineOffset='3px';t.style.backgroundColor='rgba(255,193,7,.25)';
+          setTimeout(()=>t.click(),650);return 'CLICK_QUEUED';})();"""
         runJs(js) { handler.postDelayed({ scanVerifyDid() }, 650) }
     }
 
