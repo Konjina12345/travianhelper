@@ -216,7 +216,7 @@ class MainActivity : Activity() {
           const mobileBox=[...form.querySelectorAll('input[type=checkbox]')].find(e=>
             /log\s*in\s*with\s*mobile\s*version/i.test(labelsFor(e)+' '+(e.parentElement?.innerText||'')+' '+(e.closest('label')?.innerText||'')));
           if(!mobileBox)return 'MOBILE_VERSION_CHECKBOX_NOT_FOUND';
-          const mark=e=>{e.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});e.style.outline='3px solid #ff9800';e.style.outlineOffset='3px';e.style.transition='outline 0.15s';e.style.backgroundColor='rgba(255,193,7,.18)';};
+          const mark=e=>{e.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});};
           const setValue=(el,value)=>{el.focus();mark(el);const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));};
           mark(user); user.focus();
           setTimeout(()=>{
@@ -302,7 +302,7 @@ class MainActivity : Activity() {
         navigationAttempts++
         val js = """(function(){const did=${jsString(expectedDid)};
           const e=document.querySelector('.villageList .listEntry.village[data-did="'+did+'"],#sidebarBoxVillagelist .listEntry.village[data-did="'+did+'"],.listEntry.village[data-did="'+did+'"]');
-          if(!e)return 'NOT_FOUND';const t=e.querySelector('a,span.name,.name')||e;t.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});t.style.outline='3px solid #ff9800';t.style.backgroundColor='rgba(255,193,7,.25)';setTimeout(()=>t.click(),650);return 'CLICK_QUEUED';})();"""
+          if(!e)return 'NOT_FOUND';const t=e.querySelector('a,span.name,.name')||e;t.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});setTimeout(()=>t.click(),650);return 'CLICK_QUEUED';})();"""
         runJs(js) { handler.postDelayed({ verifyDidTwice() }, 500) }
     }
 
@@ -385,7 +385,7 @@ class MainActivity : Activity() {
           const e=document.querySelector('#sidebarBoxVillagelist .listEntry.village[data-did="'+did+'"],.villageList .listEntry.village[data-did="'+did+'"],.listEntry.village[data-did="'+did+'"]');
           if(!e)return 'NOT_FOUND';const t=e.querySelector('a,span.name,.name')||e;
           t.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});
-          t.style.outline='3px solid #ff9800';t.style.outlineOffset='3px';t.style.backgroundColor='rgba(255,193,7,.25)';
+          
           setTimeout(()=>t.click(),650);return 'CLICK_QUEUED';})();"""
         runJs(js) { handler.postDelayed({ scanVerifyDid() }, 650) }
     }
