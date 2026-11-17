@@ -202,7 +202,7 @@ class MainActivity : Activity() {
           if(action.protocol!=='https:'||action.host.toLowerCase()!==allowedHost.toLowerCase())return 'UNSAFE_FORM_ACTION';
           const labelsFor=e=>[...(e.labels||[])].map(x=>x.innerText||x.textContent||'').join(' ');
           const mobileBox=[...form.querySelectorAll('input[type=checkbox]')].find(e=>
-            /log\\s*in\\s*with\\s*mobile\\s*version/i.test(labelsFor(e)+' '+(e.parentElement?.innerText||'')+' '+(e.closest('label')?.innerText||'')));
+            /log\s*in\s*with\s*mobile\s*version/i.test(labelsFor(e)+' '+(e.parentElement?.innerText||'')+' '+(e.closest('label')?.innerText||'')));
           if(!mobileBox)return 'MOBILE_VERSION_CHECKBOX_NOT_FOUND';
           const mark=e=>{e.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});e.style.outline='3px solid #ff9800';e.style.outlineOffset='3px';e.style.transition='outline 0.15s';};
           const setValue=(el,value)=>{el.focus();mark(el);const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));};
