@@ -112,6 +112,8 @@ class MainActivity : Activity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.loadsImagesAutomatically = true
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
             settings.javaScriptCanOpenWindowsAutomatically = false
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -139,7 +141,7 @@ class MainActivity : Activity() {
         setStatus("Otvaram zadatu login stranicu.")
     }
 
-    // Open the supplied HTTPS login page automatically, then submit its form once.
+    // Login is performed visibly, one step at a time inside the WebView.
     private fun autoLogin() {
         val email = loginEmail.text.toString()
         val password = loginPassword.text.toString()
@@ -158,12 +160,11 @@ class MainActivity : Activity() {
         val current = android.net.Uri.parse(web.url ?: "")
         if (!target.host.equals(current.host, true) || target.path != current.path || target.query != current.query) {
             pendingAutoLogin = true
-            setStatus("Automatski otvaram login stranicu…")
+            setStatus("Otvaram login stranicu…")
             web.loadUrl(target.toString())
         } else {
             pendingAutoLogin = false
-            setStatus("Popunjavam i šaljem login formu…")
-            handler.postDelayed({ performAutoLogin() }, 250)
+            performAutoLogin()
         }
     }
 
@@ -176,7 +177,6 @@ class MainActivity : Activity() {
         } catch (_: Exception) { null }
         val current = android.net.Uri.parse(web.url ?: "")
         if (target == null || !target.host.equals(current.host, true) || email.isBlank() || password.isBlank()) {
-            loginPassword.text.clear()
             setStatus("Login nije pokrenut: provjeri adresu i podatke.")
             return
         }
@@ -186,29 +186,62 @@ class MainActivity : Activity() {
         val js = """(function(){
           const emailValue=$emailJson, passValue=$passJson, allowedHost=$hostJson;
           const visible=e=>!!(e&&(e.offsetWidth||e.offsetHeight||e.getClientRects().length));
-          const inputs=[...document.querySelectorAll("input")].filter(visible);
-          const pass=inputs.find(e=>e.type==="password"||/pass|pwd|loz/i.test((e.name||"")+" "+(e.id||"")+" "+(e.autocomplete||"")));
-          const user=inputs.find(e=>e!==pass&&(/email|user|login|name/i.test((e.name||"")+" "+(e.id||"")+" "+(e.autocomplete||""))||e.type==="email"))||inputs.find(e=>e!==pass&&(e.type==="text"||e.type==="email"));
-          if(!user||!pass)return "FIELDS_NOT_FOUND";
-          const form=pass.form||user.form;
-          if(!form)return "FORM_NOT_FOUND";
+          const inputs=[...document.querySelectorAll('input')].filter(e=>visible(e)&&!e.disabled);
+          const pass=inputs.find(e=>e.type==='password'||/pass|pwd|loz/i.test((e.name||'')+' '+(e.id||'')+' '+(e.autocomplete||'')));
+          if(!pass)return 'PASSWORD_FIELD_NOT_FOUND';
+          const form=pass.form||pass.closest('form');
+          if(!form)return 'FORM_NOT_FOUND';
+          const candidates=inputs.filter(e=>e!==pass&&e.type!=='checkbox'&&e.type!=='radio'&&e.type!=='hidden'&&e.type!=='submit'&&e.type!=='button');
+          const user=candidates.find(e=>/email|user|login|username/i.test((e.name||'')+' '+(e.id||'')+' '+(e.autocomplete||'')+' '+(e.placeholder||'')))
+            ||candidates.find(e=>e.type==='email')
+            ||candidates.find(e=>e.type==='text');
+          if(!user)return 'USERNAME_FIELD_NOT_FOUND';
+          if(user.form&&user.form!==form)return 'FIELDS_IN_DIFFERENT_FORMS';
           let action;
-          try{action=new URL(form.getAttribute("action")||location.href,location.href)}catch(e){return "BAD_FORM_ACTION"}
-          if(action.protocol!=="https:"||action.host.toLowerCase()!==allowedHost.toLowerCase())return "UNSAFE_FORM_ACTION";
-          const set=(el,value)=>{const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set;setter.call(el,value);el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}))};
-          set(user,emailValue);set(pass,passValue);
-          const submit=form.querySelector("button[type=submit],input[type=submit],button:not([type])");
-          if(typeof form.requestSubmit==="function")form.requestSubmit(submit||undefined);else if(submit)submit.click();else form.submit();
-          return "SUBMITTED";
+          try{action=new URL(form.getAttribute('action')||location.href,location.href)}catch(e){return 'BAD_FORM_ACTION'}
+          if(action.protocol!=='https:'||action.host.toLowerCase()!==allowedHost.toLowerCase())return 'UNSAFE_FORM_ACTION';
+          const labelsFor=e=>[...(e.labels||[])].map(x=>x.innerText||x.textContent||'').join(' ');
+          const mobileBox=[...form.querySelectorAll('input[type=checkbox]')].find(e=>
+            /log\\s*in\\s*with\\s*mobile\\s*version/i.test(labelsFor(e)+' '+(e.parentElement?.innerText||'')+' '+(e.closest('label')?.innerText||'')));
+          if(!mobileBox)return 'MOBILE_VERSION_CHECKBOX_NOT_FOUND';
+          const mark=e=>{e.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});e.style.outline='3px solid #ff9800';e.style.outlineOffset='3px';e.style.transition='outline 0.15s';};
+          const setValue=(el,value)=>{el.focus();mark(el);const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));};
+          mark(user); user.focus();
+          setTimeout(()=>{
+            setValue(user,emailValue);
+            setTimeout(()=>{
+              setValue(pass,passValue);
+              setTimeout(()=>{
+                mobileBox.scrollIntoView({behavior:'smooth',block:'center'});
+                mobileBox.style.outline='3px solid #ff9800';
+                if(mobileBox.checked){mobileBox.click();mobileBox.dispatchEvent(new Event('change',{bubbles:true}));}
+                if(mobileBox.checked)return;
+                setTimeout(()=>{
+                  const submit=[...form.querySelectorAll('button,input[type=submit],input[type=button]')].find(e=>visible(e)&&!e.disabled);
+                  if(submit){mark(submit);setTimeout(()=>submit.click(),450);}
+                  else if(typeof form.requestSubmit==='function')form.requestSubmit();
+                  else form.submit();
+                },500);
+              },500);
+            },500);
+          },350);
+          return 'LOGIN_SEQUENCE_STARTED';
         })();"""
+        setStatus("Tražim polja za prijavu i opciju „Log in with mobile version“…")
         web.evaluateJavascript(js) { result ->
-            loginPassword.text.clear()
             when {
-                result?.contains("FIELDS_NOT_FOUND")==true -> setStatus("Nisam pronašao polja email/lozinka.")
-                result?.contains("FORM_NOT_FOUND")==true -> setStatus("Polja nisu povezana sa login formom.")
-                result?.contains("UNSAFE_FORM_ACTION")==true || result?.contains("BAD_FORM_ACTION")==true -> setStatus("Prijava zaustavljena: forma šalje podatke na drugi ili nesiguran server.")
-                result?.contains("SUBMITTED")==true -> setStatus("Login forma je poslata. Sačekaj odgovor servera; CAPTCHA/2FA završi ručno.")
-                else -> setStatus("Prijava nije potvrđena. Provjeri login stranicu.")
+                result?.contains("PASSWORD_FIELD_NOT_FOUND") == true -> setStatus("Nisam pronašao vidljivo polje za lozinku. Podaci nisu poslati.")
+                result?.contains("USERNAME_FIELD_NOT_FOUND") == true -> setStatus("Nisam pronašao polje za korisničko ime/email. Podaci nisu poslati.")
+                result?.contains("MOBILE_VERSION_CHECKBOX_NOT_FOUND") == true -> setStatus("Nisam pronašao opciju „Log in with mobile version“. Prijavu nisam poslao.")
+                result?.contains("FORM_NOT_FOUND") == true -> setStatus("Polja nisu u login formi. Prijavu nisam poslao.")
+                result?.contains("UNSAFE_FORM_ACTION") == true || result?.contains("BAD_FORM_ACTION") == true -> setStatus("Prijava zaustavljena: forma šalje podatke na drugi ili nesiguran server.")
+                result?.contains("FIELDS_IN_DIFFERENT_FORMS") == true -> setStatus("Polja za korisnika i lozinku nisu u istoj formi.")
+                result?.contains("LOGIN_SEQUENCE_STARTED") == true -> {
+                    setStatus("Popunjavam polja redom, isključujem „Log in with mobile version“, pa klikćem prijavu…")
+                    handler.postDelayed({ loginPassword.text.clear() }, 3500)
+                    handler.postDelayed({ setStatus("Prijava je poslata ako je server prihvatio klik. CAPTCHA/2FA završi ručno ako se pojavi.") }, 3000)
+                }
+                else -> setStatus("Login nije pokrenut. Provjeri da li je otvorena prava login stranica.")
             }
         }
     }
@@ -239,7 +272,7 @@ class MainActivity : Activity() {
         val target = if (view == "resource") "dorf1.php" else "dorf2.php"
         val selector = if (view == "resource") "a.village.resourceView,a.resourceView,a[href*='dorf1.php']"
                        else "a.village.buildingView,a.buildingView,a[href*='dorf2.php']"
-        runJs("(function(){const e=document.querySelector(${jsString(selector)});if(!e)return 'NO';e.click();return 'YES';})()") { r ->
+        runJs("(function(){const e=document.querySelector(${jsString(selector)});if(!e)return 'NO';e.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});e.style.outline='3px solid #ff9800';setTimeout(()=>e.click(),500);return 'YES';})()") { r ->
             if (r.contains("YES")) handler.postDelayed({ done(true) }, 1900)
             else runJs("(function(){const u=new URL(location.href);u.pathname=u.pathname.replace(/[^/]+$/,${jsString(target)});location.href=u.toString();return 'FALLBACK';})()") {
                 handler.postDelayed({ done(true) }, 2300)
@@ -258,7 +291,7 @@ class MainActivity : Activity() {
         navigationAttempts++
         val js = """(function(){const did=${jsString(expectedDid)};
           const e=document.querySelector('.villageList .listEntry.village[data-did="'+did+'"],#sidebarBoxVillagelist .listEntry.village[data-did="'+did+'"],.listEntry.village[data-did="'+did+'"]');
-          if(!e)return 'NOT_FOUND';const t=e.querySelector('a,span.name,.name')||e;t.scrollIntoView({block:'center'});t.click();return 'CLICKED';})();"""
+          if(!e)return 'NOT_FOUND';const t=e.querySelector('a,span.name,.name')||e;t.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});t.style.outline='3px solid #ff9800';t.style.backgroundColor='rgba(255,193,7,.25)';setTimeout(()=>t.click(),650);return 'CLICK_QUEUED';})();"""
         runJs(js) { handler.postDelayed({ verifyDidTwice() }, 500) }
     }
 
