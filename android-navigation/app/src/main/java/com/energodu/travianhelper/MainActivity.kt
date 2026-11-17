@@ -37,6 +37,7 @@ class MainActivity : Activity() {
     private var scanPreparedForSwitch = false
     private val scanResults = mutableListOf<String>()
     private var scanResourceSummary = ""
+    private var pendingAutoLogin = false
     private val villageCache by lazy { getSharedPreferences("travian_village_cache", MODE_PRIVATE) }
 
     private fun cachedResources(did: String): JSONArray? {
@@ -114,7 +115,13 @@ class MainActivity : Activity() {
             settings.javaScriptCanOpenWindowsAutomatically = false
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    setStatus("Stranica učitana: ${url ?: ""}")
+                    if (pendingAutoLogin) {
+                        pendingAutoLogin = false
+                        setStatus("Login stranica je učitana — popunjavam i šaljem prijavu…")
+                        handler.postDelayed({ performAutoLogin() }, 700)
+                    } else {
+                        setStatus("Stranica učitana.")
+                    }
                 }
             }
         }
@@ -132,57 +139,76 @@ class MainActivity : Activity() {
         setStatus("Otvaram zadatu login stranicu.")
     }
 
-    // Credentials are used only for this explicit login action; never persisted or logged.
+    // Open the supplied HTTPS login page automatically, then submit its form once.
     private fun autoLogin() {
         val email = loginEmail.text.toString()
         val password = loginPassword.text.toString()
-        val suppliedUrl = address.text.toString().trim()
+        val supplied = address.text.toString().trim()
         if (email.isBlank() || password.isBlank()) {
             Toast.makeText(this, "Unesi email/korisničko ime i lozinku.", Toast.LENGTH_SHORT).show()
             return
         }
-        try {
-            val target = android.net.Uri.parse(if (suppliedUrl.startsWith("http")) suppliedUrl else "https://$suppliedUrl")
-            val current = android.net.Uri.parse(web.url ?: "")
-            if (target.scheme != "https" || target.host.isNullOrBlank()) {
-                setStatus("Radi zaštite lozinke koristi HTTPS login adresu.")
-                return
-            }
-            if (!target.host.equals(current.host, ignoreCase = true)) {
-                setStatus("Prvo otvori login stranicu istog servera: ${target.host}.")
-                return
-            }
-        } catch (_: Exception) {
-            setStatus("Login adresa nije ispravna.")
+        val target = try {
+            android.net.Uri.parse(if (supplied.startsWith("http", true)) supplied else "https://$supplied")
+        } catch (_: Exception) { null }
+        if (target == null || target.scheme != "https" || target.host.isNullOrBlank()) {
+            setStatus("Unesi ispravnu HTTPS adresu login stranice.")
+            return
+        }
+        val current = android.net.Uri.parse(web.url ?: "")
+        if (!target.host.equals(current.host, true) || target.path != current.path || target.query != current.query) {
+            pendingAutoLogin = true
+            setStatus("Automatski otvaram login stranicu…")
+            web.loadUrl(target.toString())
+        } else {
+            pendingAutoLogin = false
+            setStatus("Popunjavam i šaljem login formu…")
+            handler.postDelayed({ performAutoLogin() }, 250)
+        }
+    }
+
+    private fun performAutoLogin() {
+        val email = loginEmail.text.toString()
+        val password = loginPassword.text.toString()
+        val supplied = address.text.toString().trim()
+        val target = try {
+            android.net.Uri.parse(if (supplied.startsWith("http", true)) supplied else "https://$supplied")
+        } catch (_: Exception) { null }
+        val current = android.net.Uri.parse(web.url ?: "")
+        if (target == null || !target.host.equals(current.host, true) || email.isBlank() || password.isBlank()) {
+            loginPassword.text.clear()
+            setStatus("Login nije pokrenut: provjeri adresu i podatke.")
             return
         }
         val emailJson = org.json.JSONObject.quote(email)
         val passJson = org.json.JSONObject.quote(password)
+        val hostJson = org.json.JSONObject.quote(target.host!!)
         val js = """(function(){
-          const emailValue=$emailJson, passValue=$passJson;
-          const visible=e=>!!(e && (e.offsetWidth||e.offsetHeight||e.getClientRects().length));
-          const inputs=[...document.querySelectorAll('input')].filter(visible);
-          const pass=inputs.find(e=>e.type==='password'||/pass|pwd|loz/i.test((e.name||'')+' '+(e.id||'')+' '+(e.autocomplete||'')));
-          const user=inputs.find(e=>e!==pass && (/email|user|login|name/i.test((e.name||'')+' '+(e.id||'')+' '+(e.autocomplete||'')) || e.type==='email')) ||
-                     inputs.find(e=>e!==pass && (e.type==='text'||e.type==='email'));
-          if(!user||!pass) return 'FIELDS_NOT_FOUND';
-          const set=(el,value)=>{const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));};
-          set(user,emailValue);set(pass,passValue);
+          const emailValue=$emailJson, passValue=$passJson, allowedHost=$hostJson;
+          const visible=e=>!!(e&&(e.offsetWidth||e.offsetHeight||e.getClientRects().length));
+          const inputs=[...document.querySelectorAll("input")].filter(visible);
+          const pass=inputs.find(e=>e.type==="password"||/pass|pwd|loz/i.test((e.name||"")+" "+(e.id||"")+" "+(e.autocomplete||"")));
+          const user=inputs.find(e=>e!==pass&&(/email|user|login|name/i.test((e.name||"")+" "+(e.id||"")+" "+(e.autocomplete||""))||e.type==="email"))||inputs.find(e=>e!==pass&&(e.type==="text"||e.type==="email"));
+          if(!user||!pass)return "FIELDS_NOT_FOUND";
           const form=pass.form||user.form;
-          const submit=form?.querySelector('button[type=submit],input[type=submit],button:not([type])')||document.querySelector('button[type=submit],input[type=submit]');
-          if(form && typeof form.requestSubmit==='function') form.requestSubmit(submit||undefined);
-          else if(submit) submit.click();
-          else if(form) form.submit();
-          else return 'FORM_NOT_FOUND';
-          return 'SUBMITTED';
+          if(!form)return "FORM_NOT_FOUND";
+          let action;
+          try{action=new URL(form.getAttribute("action")||location.href,location.href)}catch(e){return "BAD_FORM_ACTION"}
+          if(action.protocol!=="https:"||action.host.toLowerCase()!==allowedHost.toLowerCase())return "UNSAFE_FORM_ACTION";
+          const set=(el,value)=>{const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set;setter.call(el,value);el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}))};
+          set(user,emailValue);set(pass,passValue);
+          const submit=form.querySelector("button[type=submit],input[type=submit],button:not([type])");
+          if(typeof form.requestSubmit==="function")form.requestSubmit(submit||undefined);else if(submit)submit.click();else form.submit();
+          return "SUBMITTED";
         })();"""
         web.evaluateJavascript(js) { result ->
             loginPassword.text.clear()
             when {
-                result?.contains("FIELDS_NOT_FOUND") == true -> setStatus("Nisam prepoznao polja email/lozinka. Provjeri login stranicu.")
-                result?.contains("FORM_NOT_FOUND") == true -> setStatus("Polja su popunjena, ali formu za prijavu nisam pronašao.")
-                result?.contains("SUBMITTED") == true -> setStatus("Podaci su unijeti i prijava je poslata. Ako postoji CAPTCHA/2FA, završi je ručno.")
-                else -> setStatus("Pokušaj prijave poslat; provjeri rezultat na stranici.")
+                result?.contains("FIELDS_NOT_FOUND")==true -> setStatus("Nisam pronašao polja email/lozinka.")
+                result?.contains("FORM_NOT_FOUND")==true -> setStatus("Polja nisu povezana sa login formom.")
+                result?.contains("UNSAFE_FORM_ACTION")==true || result?.contains("BAD_FORM_ACTION")==true -> setStatus("Prijava zaustavljena: forma šalje podatke na drugi ili nesiguran server.")
+                result?.contains("SUBMITTED")==true -> setStatus("Login forma je poslata. Sačekaj odgovor servera; CAPTCHA/2FA završi ručno.")
+                else -> setStatus("Prijava nije potvrđena. Provjeri login stranicu.")
             }
         }
     }
