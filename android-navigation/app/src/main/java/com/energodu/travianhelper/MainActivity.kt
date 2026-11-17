@@ -33,6 +33,34 @@ class MainActivity : Activity() {
     private var scanRunning = false
     private val scanResults = mutableListOf<String>()
     private var scanResourceSummary = ""
+    private val villageCache by lazy { getSharedPreferences("travian_village_cache", MODE_PRIVATE) }
+
+    private fun cachedResources(did: String): JSONArray? {
+        return try {
+            val arr = JSONArray(villageCache.getString("resources_$did", null) ?: return null)
+            val levels = mutableMapOf<Int, Int>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val slot = o.optInt("slot")
+                if (slot in 1..18) levels[slot] = o.optInt("level")
+            }
+            if (levels.size == 18 && (1..18).all { (levels[it] ?: 0) >= 10 }) arr else null
+        } catch (_: Exception) { null }
+    }
+
+    private fun saveResourceCache(did: String, arr: JSONArray): Boolean {
+        return try {
+            val levels = mutableMapOf<Int, Int>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val slot = o.optInt("slot")
+                if (slot in 1..18) levels[slot] = o.optInt("level")
+            }
+            if (levels.size != 18) return false
+            villageCache.edit().putString("resources_$did", arr.toString()).apply()
+            true
+        } catch (_: Exception) { false }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -245,20 +273,46 @@ class MainActivity : Activity() {
     private fun captureResourcePage() {
         if (!scanRunning) return
         val js = """(function(){
-          const stock=document.querySelector('#stockBar')?.innerText?.replace(/\s+/g,' ')||'';
-          const fields=[...document.querySelectorAll('#resourceFieldContainer .resourceField, .resourceField')];
-          const levels=fields.map(e=>{const s=(e.getAttribute('title')||e.innerText||'');const m=s.match(/(?:level|level\s*|lvl|nivo|stufe)\s*[: ]?\s*(\d+)/i);return m?parseInt(m[1]):null;});
-          return JSON.stringify({stock:stock.slice(0,220),fieldCount:fields.length,levels:levels});
+          const out=[], seen=new Set();
+          let anchors=[...document.querySelectorAll('a.resourceField')];
+          if(!anchors.length) anchors=[...document.querySelectorAll("a[href*='build.php?id=']")];
+          for(const a of anchors){
+            const m=(a.getAttribute('href')||'').match(/[?&]id=(\d+)/);
+            if(!m) continue;
+            const slot=parseInt(m[1],10);
+            if(slot<1||slot>18||seen.has(slot)) continue;
+            const levelEl=a.querySelector('span.level,[data-level]');
+            let level=parseInt(levelEl?.getAttribute('data-level')||'',10);
+            if(!Number.isFinite(level)){
+              const t=(levelEl?.innerText||a.innerText||a.title||'');
+              const lm=t.match(/(?:level|lvl|nivo|stufe)?\s*[:#]?\s*(\d+)/i);
+              level=lm?parseInt(lm[1],10):0;
+            }
+            const gm=(a.getAttribute('class')||'').match(/gid(\d+)/);
+            out.push({slot:slot,level:Number.isFinite(level)?level:0,gid:gm?gm[1]:'',name:(a.title||a.innerText||'').trim()});
+            seen.add(slot);
+          }
+          out.sort((a,b)=>a.slot-b.slot);
+          return JSON.stringify({fields:out});
         })();"""
         runJs(js) { raw ->
-            scanResourceSummary = raw.take(240)
-            setStatus("DID $expectedDid — resursi učitani; prelazim u centar…")
-            runJs("(function(){return location.href;})()") { url ->
-                if (url.contains("dorf2.php")) captureCenterPage()
-                else clickView("center") { ok ->
-                    if (!ok) { scanResults.add("DID $expectedDid — resursi učitani, centar nije otvoren"); scanIndex++; scanNextVillage() }
-                    else captureCenterPage()
+            try {
+                val decoded = JSONTokener(raw).nextValue() as? String ?: "{}"
+                val fields = org.json.JSONObject(decoded).optJSONArray("fields") ?: JSONArray()
+                if (fields.length() != 18) {
+                    scanResults.add("GREŠKA DID $expectedDid — resursni DOM \${fields.length()}/18; nepotpun keš nije sačuvan")
+                    scanIndex++
+                    scanNextVillage()
+                    return@runJs
                 }
+                val saved = saveResourceCache(expectedDid, fields)
+                scanResourceSummary = "DORF1: 18/18 polja; keš \${if (saved) "sačuvan" else "nije potvrđen"}"
+                setStatus("DID $expectedDid — resursi očitani 18/18; prelazim direktno u centar.")
+                scanOpenCenter()
+            } catch (e: Exception) {
+                scanResults.add("GREŠKA DID $expectedDid — parsiranje resursa: \${e.message}")
+                scanIndex++
+                scanNextVillage()
             }
         }
     }
@@ -266,17 +320,40 @@ class MainActivity : Activity() {
     private fun captureCenterPage() {
         if (!scanRunning) return
         val js = """(function(){
-          const title=document.querySelector('#villageNameField,.titleInHeader,.contentTitle')?.innerText?.trim()||document.title;
-          const buildings=[...document.querySelectorAll('#village_map .buildingSlot, #village_map .building, .buildingList .building')];
-          const count=buildings.length;
-          return JSON.stringify({title:title,buildingCount:count,url:location.pathname});
+          const slots=[...document.querySelectorAll('#villageContent div.buildingSlot[data-aid],div.buildingSlot[data-aid]')];
+          const seen=new Set(), out=[];
+          for(const e of slots){
+            const slot=parseInt(e.getAttribute('data-aid')||'0',10);
+            if(!slot||slot<19||seen.has(slot)) continue;
+            seen.add(slot);
+            const gid=e.getAttribute('data-gid')||'';
+            const name=e.getAttribute('data-name')||(gid==='0'?'Prazno polje':('GID '+gid));
+            const a=e.querySelector('a.level,a[data-level],a[href*="build.php?id="]');
+            let level=parseInt(a?.getAttribute('data-level')||'',10);
+            if(!Number.isFinite(level)){
+              const m=(a?.innerText||a?.title||'').match(/\d+/);
+              level=m?parseInt(m[0],10):0;
+            }
+            out.push({slot:slot,gid:gid,name:name,level:Number.isFinite(level)?level:0,empty:!gid||gid==='0'});
+          }
+          out.sort((a,b)=>a.slot-b.slot);
+          return JSON.stringify({buildings:out});
         })();"""
-        runJs(js) { center ->
-            val item = scanVillages.optJSONObject(scanIndex)
-            val name = item?.optString("name") ?: "Selo"
-            scanResults.add("✓ $name | DID $expectedDid | resursi + centar učitani")
+        runJs(js) { raw ->
+            try {
+                val decoded = JSONTokener(raw).nextValue() as? String ?: "{}"
+                val buildings = org.json.JSONObject(decoded).optJSONArray("buildings") ?: JSONArray()
+                val item = scanVillages.optJSONObject(scanIndex)
+                val name = item?.optString("name") ?: "Selo"
+                val resourceInfo = if (cachedResources(expectedDid) != null) "18 resursnih L10+ (dorf1 preskočen)" else scanResourceSummary
+                scanResults.add("✓ $name | DID $expectedDid | $resourceInfo | centar \${buildings.length()} slotova")
+                villageCache.edit().putString("center_$expectedDid", buildings.toString()).apply()
+            } catch (_: Exception) {
+                val item = scanVillages.optJSONObject(scanIndex)
+                scanResults.add("✓ \${item?.optString("name") ?: "Selo"} | DID $expectedDid | resursi očitani; centar nije parsiran")
+            }
             scanIndex++
-            results.text = "Napredak: ${scanIndex}/${scanVillages.length()} sela\n" + scanResults.takeLast(8).joinToString("\n")
+            results.text = "Napredak: \${scanIndex}/\${scanVillages.length()} sela\n" + scanResults.takeLast(10).joinToString("\n")
             handler.postDelayed({ scanNextVillage() }, 900)
         }
     }
