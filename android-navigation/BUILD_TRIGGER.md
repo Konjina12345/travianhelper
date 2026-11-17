@@ -1,0 +1,1 @@
+Cloud build trigger for the Android navigation proof-of-concept. This is not the complete Travian Helper port.
