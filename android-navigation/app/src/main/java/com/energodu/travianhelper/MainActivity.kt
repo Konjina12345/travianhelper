@@ -10,6 +10,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
+import android.text.InputType
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -21,6 +22,8 @@ class MainActivity : Activity() {
     private lateinit var web: WebView
     private lateinit var address: EditText
     private lateinit var villageDid: EditText
+    private lateinit var loginEmail: EditText
+    private lateinit var loginPassword: EditText
     private lateinit var status: TextView
     private lateinit var results: TextView
     private val handler = Handler(Looper.getMainLooper())
@@ -69,7 +72,20 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(10, 8, 10, 8) }
         address = EditText(this).apply { hint = "Travian server ili login link (https://...)"; setMaxLines(1); setText("https://") }
         root.addView(address, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
-        root.addView(makeButton("Otvori Travian / prijava") { openServer() })
+        root.addView(makeButton("Otvori login stranicu") { openServer() })
+        loginEmail = EditText(this).apply {
+            hint = "Email / korisničko ime"
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+        }
+        root.addView(loginEmail, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
+        loginPassword = EditText(this).apply {
+            hint = "Lozinka (ne čuva se u aplikaciji)"
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        root.addView(loginPassword, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(makeButton("AUTOMATSKA PRIJAVA") { autoLogin() })
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         controls.addView(makeButton("Provjeri selo") { readVillage() }, LinearLayout.LayoutParams(0, -2, 1f))
         controls.addView(makeButton("Resursi") { navigateView("resource") }, LinearLayout.LayoutParams(0, -2, 1f))
@@ -112,9 +128,63 @@ class MainActivity : Activity() {
         var url = address.text.toString().trim()
         if (url.isBlank()) return
         if (!url.startsWith("https://") && !url.startsWith("http://")) url = "https://$url"
-        if (!url.endsWith("login.php") && !url.contains("/dorf")) url = url.trimEnd('/') + "/login.php"
         web.loadUrl(url)
-        setStatus("Otvaram Travian. Prijavu obavi ručno u stranici igre.")
+        setStatus("Otvaram zadatu login stranicu.")
+    }
+
+    // Credentials are used only for this explicit login action; never persisted or logged.
+    private fun autoLogin() {
+        val email = loginEmail.text.toString()
+        val password = loginPassword.text.toString()
+        val suppliedUrl = address.text.toString().trim()
+        if (email.isBlank() || password.isBlank()) {
+            Toast.makeText(this, "Unesi email/korisničko ime i lozinku.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val target = android.net.Uri.parse(if (suppliedUrl.startsWith("http")) suppliedUrl else "https://$suppliedUrl")
+            val current = android.net.Uri.parse(web.url ?: "")
+            if (target.scheme != "https" || target.host.isNullOrBlank()) {
+                setStatus("Radi zaštite lozinke koristi HTTPS login adresu.")
+                return
+            }
+            if (!target.host.equals(current.host, ignoreCase = true)) {
+                setStatus("Prvo otvori login stranicu istog servera: \${target.host}.")
+                return
+            }
+        } catch (_: Exception) {
+            setStatus("Login adresa nije ispravna.")
+            return
+        }
+        val emailJson = org.json.JSONObject.quote(email)
+        val passJson = org.json.JSONObject.quote(password)
+        val js = """(function(){
+          const emailValue=$emailJson, passValue=$passJson;
+          const visible=e=>!!(e && (e.offsetWidth||e.offsetHeight||e.getClientRects().length));
+          const inputs=[...document.querySelectorAll('input')].filter(visible);
+          const pass=inputs.find(e=>e.type==='password'||/pass|pwd|loz/i.test((e.name||'')+' '+(e.id||'')+' '+(e.autocomplete||'')));
+          const user=inputs.find(e=>e!==pass && (/email|user|login|name/i.test((e.name||'')+' '+(e.id||'')+' '+(e.autocomplete||'')) || e.type==='email')) ||
+                     inputs.find(e=>e!==pass && (e.type==='text'||e.type==='email'));
+          if(!user||!pass) return 'FIELDS_NOT_FOUND';
+          const set=(el,value)=>{const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));};
+          set(user,emailValue);set(pass,passValue);
+          const form=pass.form||user.form;
+          const submit=form?.querySelector('button[type=submit],input[type=submit],button:not([type])')||document.querySelector('button[type=submit],input[type=submit]');
+          if(form && typeof form.requestSubmit==='function') form.requestSubmit(submit||undefined);
+          else if(submit) submit.click();
+          else if(form) form.submit();
+          else return 'FORM_NOT_FOUND';
+          return 'SUBMITTED';
+        })();"""
+        web.evaluateJavascript(js) { result ->
+            loginPassword.text.clear()
+            when {
+                result?.contains("FIELDS_NOT_FOUND") == true -> setStatus("Nisam prepoznao polja email/lozinka. Provjeri login stranicu.")
+                result?.contains("FORM_NOT_FOUND") == true -> setStatus("Polja su popunjena, ali formu za prijavu nisam pronašao.")
+                result?.contains("SUBMITTED") == true -> setStatus("Podaci su unijeti i prijava je poslata. Ako postoji CAPTCHA/2FA, završi je ručno.")
+                else -> setStatus("Pokušaj prijave poslat; provjeri rezultat na stranici.")
+            }
+        }
     }
 
     private fun readVillage() {
