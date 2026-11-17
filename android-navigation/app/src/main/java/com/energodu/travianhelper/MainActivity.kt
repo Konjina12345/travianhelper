@@ -38,7 +38,7 @@ class MainActivity : Activity() {
         }
         address = EditText(this).apply {
             hint = "Travian server ili login link (https://...)"
-            singleLine = true
+            setSingleLine(true)
             setText("https://")
         }
         root.addView(address, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -52,7 +52,7 @@ class MainActivity : Activity() {
         controls.addView(makeButton("Centar") { navigateView("center") }, LinearLayout.LayoutParams(0, -2, 1f))
         root.addView(controls)
         val villageRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        villageDid = EditText(this).apply { hint = "ID sela (DID)"; singleLine = true }
+        villageDid = EditText(this).apply { hint = "ID sela (DID)"; setSingleLine(true) }
         villageRow.addView(villageDid, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         villageRow.addView(makeButton("Promijeni selo") {
             val did = villageDid.text.toString().trim()
